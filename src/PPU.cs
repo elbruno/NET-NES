@@ -445,6 +445,57 @@ public class PPU {
         Raylib.DrawTextureEx(texture, new System.Numerics.Vector2(textureX, textureY), 0.0f, scale, Color.White);
     }
 
+    public string DrawFrameAndSave(int scale, bool saveImage = false)
+    {
+        var fileName = string.Empty;
+
+        for (int y = 0; y < ScreenHeight; y++)
+        {
+            for (int x = 0; x < ScreenWidth; x++)
+            {
+                Color color = frameBuffer[y * ScreenWidth + x];
+                Raylib.ImageDrawPixel(ref image, x, y, color);
+            }
+        }
+
+        unsafe
+        {
+            Raylib.UpdateTexture(texture, image.Data);
+        }
+
+        Raylib.DrawTextureEx(texture, new System.Numerics.Vector2(textureX, textureY), 0.0f, scale, Color.White);
+
+        if (saveImage)
+        {
+            fileName = GetImageFilename();
+            unsafe
+            {
+                Raylib.ExportImage(image, ToSbytePtr(fileName));
+            }
+        }
+
+        return fileName; // Return the filename for the saved image 
+    }
+
+    // get a new filename using the current execution path + a folder named "images" + a timestamp with .png extension
+    public string GetImageFilename() {
+            string path = Path.Combine(Directory.GetCurrentDirectory(), "images");
+            if (!Directory.Exists(path)) {
+                Directory.CreateDirectory(path);
+            }
+            string filename = $"nes_frame_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.png";
+            return Path.Combine(path, filename);
+    }
+
+    // Helper to convert string to sbyte* for Raylib interop
+    private static unsafe sbyte* ToSbytePtr(string str)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(str + "\0");
+        var ptr = (sbyte*)System.Runtime.InteropServices.Marshal.AllocHGlobal(bytes.Length);
+        for (int i = 0; i < bytes.Length; i++) ptr[i] = (sbyte)bytes[i];
+        return ptr;
+    }
+
     //NES 64 Color Palette
     static readonly Color[] NesPalette = new Color[] {
         new Color(84, 84, 84, 255),    new Color(0, 30, 116, 255),   new Color(8, 16, 144, 255),   new Color(48, 0, 136, 255),

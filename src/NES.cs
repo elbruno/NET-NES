@@ -1,4 +1,7 @@
+using OllamaSharp;
+
 public class NES {
+    internal Chat chat;
     Cartridge cartridge;
     Bus bus;
 
@@ -11,7 +14,7 @@ public class NES {
         Console.WriteLine("NES");
     }
 
-    public void Run() {
+    public string Run() {
         int cycles = 0;
 
         bus.input.UpdateController();
@@ -22,6 +25,8 @@ public class NES {
             bus.ppu.Step(used * 3);
         }
 
-        bus.ppu.DrawFrame(Helper.scale);
+        var frameImageFileName = bus.ppu.DrawFrameAndSave(Helper.scale, true);
+        //Console.WriteLine($"Saved frame: {frameImageFileName}");
+        return frameImageFileName;
     }
 }

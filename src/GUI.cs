@@ -1,10 +1,13 @@
 #pragma warning disable
 
+using ImGuiNET;
+using OllamaSharp;
 using Raylib_cs;
 using rlImGui_cs;
-using ImGuiNET;
+using System.Threading.Tasks;
 
-public class GUI {
+public class GUI
+{
     private NES nes;
 
     private FileDialog fileDialog;
@@ -14,12 +17,15 @@ public class GUI {
     private bool showAboutWindow = false;
     private bool showManualWindow = false;
 
+    private volatile bool isAnalyzingFrame = false; // Add this field
+
     Image icon;
     Texture2D backgroundTexture;
 
-    public GUI() {
+    public GUI()
+    {
         if (!Helper.raylibLog) Raylib.SetTraceLogLevel(TraceLogLevel.None);
-        
+
         Raylib.InitWindow(256 * Helper.scale, 240 * Helper.scale, "NES");
         Raylib.SetTargetFPS(60);
 
@@ -29,7 +35,8 @@ public class GUI {
 
         //Unsafe access for no imgui.ini files
         var io = ImGui.GetIO();
-        unsafe {
+        unsafe
+        {
             IntPtr ioPtr = (IntPtr)io.NativePtr;
             ImGuiIO* imguiIO = (ImGuiIO*)ioPtr.ToPointer();
             imguiIO->IniFilename = null;
@@ -43,84 +50,141 @@ public class GUI {
         Raylib.SetWindowIcon(icon);
     }
 
-    public void Run() {
-        while (!Raylib.WindowShouldClose()) {
+    public async Task RunAsync()
+    {
+        while (!Raylib.WindowShouldClose())
+        {
+            string frameFileName = string.Empty;
+
             Raylib.SetWindowSize(256 * Helper.scale, 240 * Helper.scale);
             Raylib.BeginDrawing();
             rlImGui.Begin();
 
             Raylib.ClearBackground(Color.Black);
 
+            // ollama
+            var uri = new Uri("http://localhost:11434");
+            var ollama = new OllamaApiClient(uri);
+            ollama.SelectedModel = "gemma3";
+            var chat = new Chat(ollama);
+
             MenuBar();
 
-            if (Helper.romPath.Length != 0 && Helper.insertingRom == false) {
-                nes.Run();
-            } else if (Helper.insertingRom == true) {
+            if (Helper.romPath.Length != 0 && Helper.insertingRom == false)
+            {
+                frameFileName = nes.Run();
+            }
+            else if (Helper.insertingRom == true)
+            {
                 nes = new NES();
+                nes.chat = chat;
                 Helper.insertingRom = false;
-            } else {
+            }
+            else
+            {
                 Raylib.ClearBackground(Color.DarkGray);
-                Raylib.DrawTextureEx(backgroundTexture, new System.Numerics.Vector2(0, -5), 0, (float)(Helper.scale*0.50), Color.White);
+                Raylib.DrawTextureEx(backgroundTexture, new System.Numerics.Vector2(0, -5), 0, (float)(Helper.scale * 0.50), Color.White);
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space)) Helper.showMenuBar = !Helper.showMenuBar;
-            
+
             if (Helper.fpsEnable) Raylib.DrawFPS(0, Helper.showMenuBar ? 19 : 0);
 
             rlImGui.End();
             Raylib.EndDrawing();
+
+            // Only start analysis if not already running
+            if (File.Exists(frameFileName) && Helper.insertingRom == false && !isAnalyzingFrame)
+            {
+                isAnalyzingFrame = true;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        byte[] imageBytes = File.ReadAllBytes(frameFileName);
+                        var imageBytesEnumerable = new List<IEnumerable<byte>> { imageBytes };
+                        var analysisPrompt = "analyze the game frame, and define the next step to be taken";
+                        var description = string.Empty;
+
+                        await foreach (var answerToken in chat.SendAsync(message: analysisPrompt, imagesAsBytes: imageBytesEnumerable))
+                            description += answerToken;
+
+                        Console.WriteLine(description);
+                    }
+                    finally
+                    {
+                        isAnalyzingFrame = false;
+                    }
+                });
+            }
         }
 
         Raylib.CloseWindow();
     }
 
-    public void MenuBar() {
-        if (Helper.showMenuBar) {
-            if (ImGui.BeginMainMenuBar()) {
+    public void MenuBar()
+    {
+        if (Helper.showMenuBar)
+        {
+            if (ImGui.BeginMainMenuBar())
+            {
                 ImGui.Text("NET-NES");
 
                 ImGui.Separator();
-                    
-                if (ImGui.BeginMenu("File")) {
-                    if (ImGui.MenuItem("Open ROM")) {
+
+                if (ImGui.BeginMenu("File"))
+                {
+                    if (ImGui.MenuItem("Open ROM"))
+                    {
                         fileDialog.Open();
                         Helper.showMenuBar = false;
                     }
                     ImGui.EndMenu();
                 }
-                if (ImGui.BeginMenu("Config")) {
-                    if (ImGui.MenuItem("Window Size")) {
+                if (ImGui.BeginMenu("Config"))
+                {
+                    if (ImGui.MenuItem("Window Size"))
+                    {
                         showScaleWindow = true;
                     }
                     ImGui.EndMenu();
                 }
-                if (ImGui.BeginMenu("Debug")) {
-                    if (ImGui.MenuItem("FPS Enable", null, Helper.fpsEnable)) {
+                if (ImGui.BeginMenu("Debug"))
+                {
+                    if (ImGui.MenuItem("FPS Enable", null, Helper.fpsEnable))
+                    {
                         Helper.fpsEnable = !Helper.fpsEnable;
                     }
-                    if (ImGui.MenuItem("Sprite0 Hit Disable", null, Helper.debugs0h)) {
+                    if (ImGui.MenuItem("Sprite0 Hit Disable", null, Helper.debugs0h))
+                    {
                         Helper.debugs0h = !Helper.debugs0h;
                         Console.WriteLine("Sprite0 Hit Check Disable: " + Helper.debugs0h);
                     }
                     ImGui.EndMenu();
                 }
-                if (ImGui.BeginMenu("Help")) {
-                    if (ImGui.MenuItem("Manual")) {
+                if (ImGui.BeginMenu("Help"))
+                {
+                    if (ImGui.MenuItem("Manual"))
+                    {
                         showManualWindow = true;
                     }
-                    if (ImGui.MenuItem("About")) {
+                    if (ImGui.MenuItem("About"))
+                    {
                         showAboutWindow = true;
                     }
                     ImGui.EndMenu();
                 }
             }
-        } else {
+        }
+        else
+        {
             Helper.showMenuBar = ImGui.GetMousePos().Y <= 20.0f && ImGui.GetMousePos().Y != 0;
         }
 
         ImGui.SetNextWindowPos(new System.Numerics.Vector2(0, 0), ImGuiCond.Appearing);
         ImGui.SetNextWindowSize(new System.Numerics.Vector2(256 * Helper.scale, 240 * Helper.scale), ImGuiCond.Appearing);
-        if (fileDialog.Show(ref selectedFilePath)) {
+        if (fileDialog.Show(ref selectedFilePath))
+        {
             Helper.romPath = selectedFilePath;
             Helper.insertingRom = true;
         }
@@ -130,16 +194,20 @@ public class GUI {
         AboutWindow();
     }
 
-    public void ScaleWindow() {
-        if (showScaleWindow) {
+    public void ScaleWindow()
+    {
+        if (showScaleWindow)
+        {
             ImGui.SetNextWindowPos(new System.Numerics.Vector2(0, 20), ImGuiCond.Appearing);
             ImGui.SetNextWindowSize(new System.Numerics.Vector2(125 * 2, 50 * 2), ImGuiCond.Appearing);
-            if (ImGui.Begin("Window Size Config", ref showScaleWindow)) {
+            if (ImGui.Begin("Window Size Config", ref showScaleWindow))
+            {
                 ImGui.SliderInt("Scale", ref Helper.scale, 1, 10);
 
                 ImGui.Spacing();
 
-                if (ImGui.Button("Close")) {
+                if (ImGui.Button("Close"))
+                {
                     showScaleWindow = false;
                 }
             }
@@ -147,11 +215,14 @@ public class GUI {
         }
     }
 
-    public void AboutWindow() {
-        if (showAboutWindow) {
+    public void AboutWindow()
+    {
+        if (showAboutWindow)
+        {
             ImGui.SetNextWindowPos(new System.Numerics.Vector2(0, 20), ImGuiCond.Appearing);
             ImGui.SetNextWindowSize(new System.Numerics.Vector2(125 * 2, 120 * 2), ImGuiCond.Appearing);
-            if (ImGui.Begin("About", ref showAboutWindow)) {
+            if (ImGui.Begin("About", ref showAboutWindow))
+            {
                 ImGui.Text("NET-NES");
                 ImGui.Text(Helper.version.ToString());
                 ImGui.Text("Made by Bot Randomness :)");
@@ -164,7 +235,8 @@ public class GUI {
                 ImGui.Text(" \\ O [ ] [ ]          D  D  / ");
                 ImGui.Text("  *------------------------*  ");
 
-                if (ImGui.Button("Close")) {
+                if (ImGui.Button("Close"))
+                {
                     showAboutWindow = false;
                 }
             }
@@ -172,11 +244,14 @@ public class GUI {
         }
     }
 
-    public void ManualWindow() {
-        if (showManualWindow) {
+    public void ManualWindow()
+    {
+        if (showManualWindow)
+        {
             ImGui.SetNextWindowPos(new System.Numerics.Vector2(0, 20), ImGuiCond.Appearing);
             ImGui.SetNextWindowSize(new System.Numerics.Vector2(125 * 2, 120 * 2), ImGuiCond.Appearing);
-            if (ImGui.Begin("Manual", ref showManualWindow)) {
+            if (ImGui.Begin("Manual", ref showManualWindow))
+            {
                 ImGui.Text("Controls: (A)=X, (B)=Z, \nD-Pad=ArrowKeys, [START]=ENTER, \n[SELECT]=SHIFT");
                 ImGui.Spacing();
                 ImGui.Text("Press [SPACE] to toggle the Menu \nBar.");
@@ -185,7 +260,8 @@ public class GUI {
                 ImGui.Spacing();
                 ImGui.Text("Only Catridge Mapper ID Supported: \n0, 1, 2, 4");
 
-                if (ImGui.Button("Close")) {
+                if (ImGui.Button("Close"))
+                {
                     showManualWindow = false;
                 }
             }
@@ -193,7 +269,8 @@ public class GUI {
         }
     }
 
-    class FileDialog {
+    class FileDialog
+    {
         /*
         *   File Dialog for ImGui.NET
         *   This is a simple file dialog, it's flexible and expandable
@@ -219,17 +296,20 @@ public class GUI {
 
         private bool canCancel = true;
 
-        public FileDialog(string startDirectory, bool canCancel = true) {
+        public FileDialog(string startDirectory, bool canCancel = true)
+        {
             currentDirectory = Directory.Exists(startDirectory) ? startDirectory : Directory.GetCurrentDirectory();
             this.canCancel = canCancel;
         }
 
-        public bool Show(ref string resultFilePath) {
+        public bool Show(ref string resultFilePath)
+        {
             if (!isOpen) return false;
 
             bool fileSelected = false;
 
-            if (ImGui.Begin("File Dialog", ImGuiWindowFlags.HorizontalScrollbar)) {
+            if (ImGui.Begin("File Dialog", ImGuiWindowFlags.HorizontalScrollbar))
+            {
                 ImGui.Text("Select a file:");
 
                 string[] directories = Directory.GetDirectories(currentDirectory);
@@ -237,8 +317,10 @@ public class GUI {
 
                 ImGui.InputText("File Path", ref selectedFilePath, 260);
 
-                if (ImGui.Button("Select File")) {
-                    if (File.Exists(selectedFilePath)) {
+                if (ImGui.Button("Select File"))
+                {
+                    if (File.Exists(selectedFilePath))
+                    {
                         resultFilePath = selectedFilePath;
                         fileSelected = true;
                         isOpen = false;
@@ -247,31 +329,40 @@ public class GUI {
 
                 ImGui.SameLine();
 
-                if (canCancel) {
-                    if (ImGui.Button("Cancel")) {
+                if (canCancel)
+                {
+                    if (ImGui.Button("Cancel"))
+                    {
                         isOpen = false;
                     }
                 }
 
-                if (Path.GetPathRoot(currentDirectory) != currentDirectory) {
-                    if (ImGui.Button("Back")) {
+                if (Path.GetPathRoot(currentDirectory) != currentDirectory)
+                {
+                    if (ImGui.Button("Back"))
+                    {
                         currentDirectory = Directory.GetParent(currentDirectory)?.FullName ?? currentDirectory;
                     }
                 }
 
-                foreach (var dir in directories) {
-                    if (ImGui.Selectable("[DIR] " + Path.GetFileName(dir))) {
+                foreach (var dir in directories)
+                {
+                    if (ImGui.Selectable("[DIR] " + Path.GetFileName(dir)))
+                    {
                         currentDirectory = dir;
                     }
                 }
 
-                foreach (var file in files) {
-                    if (ImGui.Selectable(Path.GetFileName(file))) {
+                foreach (var file in files)
+                {
+                    if (ImGui.Selectable(Path.GetFileName(file)))
+                    {
                         selectedFilePath = file;
                     }
                 }
 
-                if (directories.Length == 0 && files.Length == 0) {
+                if (directories.Length == 0 && files.Length == 0)
+                {
                     ImGui.Text("No files or folders found.");
                 }
             }
@@ -280,7 +371,8 @@ public class GUI {
             return fileSelected;
         }
 
-        public void Open() {
+        public void Open()
+        {
             isOpen = true;
         }
     }
