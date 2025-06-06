@@ -2,6 +2,7 @@
 
 using ImGuiNET;
 using OllamaSharp;
+using OllamaSharp.Models.Chat;
 using Raylib_cs;
 using rlImGui_cs;
 using System.Threading.Tasks;
@@ -56,8 +57,22 @@ public class GUI
         // ollama
         var uri = new Uri("http://localhost:11434");
         var ollama = new OllamaApiClient(uri);
-        ollama.SelectedModel = "gemma3";
+        ollama.SelectedModel = "llama3.2-vision";
         var chat = new Chat(ollama);
+
+        var prompt = @"Act as a game player, with high expertise playing Ms Pacman.
+Your job is to analyze game frames, and define the next step to be taken to win the game.
+The game is Ms Pacman, so the only possible actions are: up, down, left, right or undefined.
+If there is no available action return undefined.
+
+The output should be a JSON with 2 fields: 'nextaction' and 'explanation'.
+
+These are 3 sample JSON output :
+'{ ""nextaction"": ""right"",\r\n  ""explanation"": ""Moving right will allow Ms Pacman to collect more pellets while avoiding nearby ghosts.""'
+'{ ""nextaction"": ""left"",\r\n  ""explanation"": ""Moving left will help Ms Pacman avoid an approaching ghost.""'
+'{ ""nextaction"": ""up"",\r\n  ""explanation"": ""Moving up will open up routes to collect more pellets.""'
+
+Do not include ```json at the beginning of the result, ``` at the end, only return the JSON.";        
 
         byte controllerState = 0;
         string frameFileName = string.Empty;
@@ -123,26 +138,28 @@ public class GUI
                         {
                             byte[] imageBytes = File.ReadAllBytes(frameFileName);
                             var imageBytesEnumerable = new List<IEnumerable<byte>> { imageBytes };
-                            var analysisPrompt = "Act as a game player, with high expertise playing Ms Pacman." +
-                            "Analyze the game frame, and define the next step to be taken to win the game. " +
-                            "The game is Ms Pacman, so it only must return up, down, left, right or undefined. " +
-                            "The output should be only the word with the next action to be performed." +
-                            "If there is no available action return undefined.";
-                            var nextAction = string.Empty;
+                            var llmResponse = string.Empty;
 
-                            await foreach (var answerToken in chat.SendAsync(message: analysisPrompt, imagesAsBytes: imageBytesEnumerable))
+                            await foreach (var answerToken in chat.SendAsync(message: prompt, imagesAsBytes: imageBytesEnumerable))
                             {
                                 // show the answerToken in the Console
-                                Console.WriteLine($"Answer Token: {answerToken}");
-                                nextAction += answerToken;
+                                llmResponse += answerToken;
                             }
 
-                            nextAction = nextAction.Trim().ToLower();
+                            llmResponse = CleanLlmJsonResponse(llmResponse);
+                            Console.WriteLine(llmResponse);
+
+                            // desearialize the llmResponse json string into a GameActionResult
+                            GameActionResult gar =
+                            System.Text.Json.JsonSerializer.Deserialize<GameActionResult>(llmResponse);    
+
+
                             // display the next action in the console, with the current time with milliseconds as prefix
-                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {nextAction}");
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.nextaction}");
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.explanation}");
 
                             // Send the corresponding key to the keyboard for the detected action
-                            switch (nextAction)
+                            switch (gar.nextaction)
                             {
                                 case "up":
                                     controllerState |= 1 << 4;
@@ -175,6 +192,27 @@ public class GUI
         }
 
         Raylib.CloseWindow();
+    }
+
+    private static string CleanLlmJsonResponse(string llmResponse)
+    {
+        if (string.IsNullOrWhiteSpace(llmResponse))
+            return llmResponse;
+
+        var lines = llmResponse.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+        // Find the first line that starts with '{' and the last line that ends with '}'
+        int start = Array.FindIndex(lines, l => l.TrimStart().StartsWith("{"));
+        int end = Array.FindLastIndex(lines, l => l.TrimEnd().EndsWith("}"));
+
+        if (start >= 0 && end >= start)
+        {
+            var jsonLines = lines[start..(end + 1)];
+            return string.Join("\n", jsonLines);
+        }
+
+        // If not found, return the original (may throw on deserialization)
+        return llmResponse.Trim();
     }
 
     public void MenuBar()
