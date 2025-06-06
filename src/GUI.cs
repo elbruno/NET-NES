@@ -55,11 +55,12 @@ public class GUI
     public async Task RunAsync()
     {
         // ollama
+        var model = "gemma3";
         var uri = new Uri("http://localhost:11434");
         var ollama = new OllamaApiClient(uri);
-        ollama.SelectedModel = "llama3.2-vision";
+        ollama.SelectedModel = model;
         var chat = new Chat(ollama);
-        chat.Model = "llama3.2-vision";
+        chat.Model = model;
 
         byte controllerState = 0;
         string frameFileName = string.Empty;
