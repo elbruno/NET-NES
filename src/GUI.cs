@@ -54,7 +54,8 @@ public class GUI
 
         Raylib.SetWindowIcon(icon);
 
-        actionProvider = new OllamaGameActionProvider();
+        //actionProvider = new OllamaGameActionProvider();
+        actionProvider = new AoaiGameActionProvider();
     }
 
     public async Task RunAsync()

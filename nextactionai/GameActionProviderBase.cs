@@ -1,11 +1,11 @@
-﻿using OllamaSharp;
+﻿using Microsoft.Extensions.AI;
 
 namespace NET_NES.nextactionai;
 
 public class GameActionProviderBase
 {
-    public Chat chat;
-    public readonly string promptTemplate = @"Act as a game player, with high expertise playing Ms Pacman.
+    public IChatClient chat;
+    public readonly string promptTemplate = @"Act as a video game player, with high expertise playing Ms Pacman.
 Your job is to analyze the current game frame, use the last performed action, and define the next step to be taken to win the game.
 The game is Ms Pacman, so the only possible actions are: up, down, left, right.
 If there is no available action return undefined.
@@ -13,14 +13,32 @@ If there is no available action return undefined.
 The last action performed was: '{0}'.
 If the game is on the start screen or waiting for user input to start, do not suggest any action, just return undefined.
 ===
-The output should be a JSON with 2 fields: 'nextaction', and 'explanation'.
+The output should be a JSON object with 2 fields: 'nextaction', and 'explanation'.
 ===
-These are 3 sample JSON output :
-'{{ ""nextaction"": ""right"", ""explanation"": ""Moving right will allow Ms Pacman to collect more pellets while avoiding nearby ghosts."" }}'
-'{{ ""nextaction"": ""left"", ""explanation"": ""Moving left will help Ms Pacman avoid an approaching ghost."" }}'
-'{{ ""nextaction"": ""up"", ""explanation"": ""Moving up will open up routes to collect more pellets."" }}'
-===
-Do not include ```json at the beginning of the result, ``` at the end, only return the JSON";
+Sample JSON output :
+'{{ 'nextaction': 'right', 'explanation': 'Moving right will allow Ms Pacman to collect more pellets while avoiding nearby ghosts.' }}'
+'{{ 'nextaction': 'left', 'explanation': 'Moving left will help Ms Pacman avoid an approaching ghost.' }}'
+'{{ 'nextaction': 'up', 'explanation': 'Moving up will open up routes to collect more pellets.' }}'";
+
+    public async virtual Task<GameActionResult?> AnalyzeFrameAsync(byte[] imageBytes, string lastAction)
+    {
+        var imageBytesEnumerable = new List<IEnumerable<byte>> { imageBytes };
+        string prompt = string.Format(promptTemplate, lastAction);
+        string llmResponse = string.Empty;
+
+        AIContent aic = new DataContent(imageBytes, "image/jpeg");
+        List<ChatMessage> messages = new()
+        {
+            new(ChatRole.User, prompt),
+            new(ChatRole.User, [aic])
+        };
+
+        var completionUpdates = await chat.GetResponseAsync(messages);
+        llmResponse = completionUpdates.Text;
+
+        llmResponse = CleanLlmJsonResponse(llmResponse);
+        return System.Text.Json.JsonSerializer.Deserialize<GameActionResult>(llmResponse);
+    }
 
     public string CleanLlmJsonResponse(string llmResponse)
     {
