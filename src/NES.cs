@@ -1,9 +1,5 @@
-using OllamaSharp;
-using Raylib_cs;
-
 public class NES
 {
-    internal Chat chat;
     Cartridge cartridge;
     Bus bus;
 
@@ -39,17 +35,5 @@ public class NES
 
         var frameImageFileName = bus.ppu.DrawFrameAndSave(Helper.scale, true);
         return frameImageFileName;
-    }
-
-    public void RunExtended(byte controllerState)
-    {
-        bus.input.controllerState = controllerState; // .Write4016(controllerState); // Set controller state for this frame
-        int cycles = 0;
-        while (cycles < 29828)
-        {
-            int used = bus.cpu.ExecuteInstruction();
-            cycles += used;
-            bus.ppu.Step(used * 3);
-        }
     }
 }

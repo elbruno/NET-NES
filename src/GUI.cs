@@ -58,41 +58,19 @@ public class GUI
         var uri = new Uri("http://localhost:11434");
         var ollama = new OllamaApiClient(uri);
         ollama.SelectedModel = "llama3.2-vision";
-
-        // OK - ollama.SelectedModel = "llama3.2-vision";
-        // BAD - ollama.SelectedModel = "qwen2.5vl:3b";
-        // BAD - ollama.SelectedModel = "gemma3";// 
-        // BAD - ollama.SelectedModel = "granite3.2-vision";
-        // BAD - ollama.SelectedModel = "minicpm-v";
         var chat = new Chat(ollama);
-
-        var prompt = @"Act as a game player, with high expertise playing Ms Pacman.
-Your job is to analyze game frames, and define the next step to be taken to win the game.
-The game is Ms Pacman, so the only possible actions are: up, down, left, right or undefined.
-If there is no available action return undefined.
-
-The output should be a JSON with 2 fields: 'nextaction' and 'explanation'.
-
-These are 3 sample JSON output :
-'{ ""nextaction"": ""right"",\r\n  ""explanation"": ""Moving right will allow Ms Pacman to collect more pellets while avoiding nearby ghosts.""'
-'{ ""nextaction"": ""left"",\r\n  ""explanation"": ""Moving left will help Ms Pacman avoid an approaching ghost.""'
-'{ ""nextaction"": ""up"",\r\n  ""explanation"": ""Moving up will open up routes to collect more pellets.""'
-
-Do not include ```json at the beginning of the result, ``` at the end, only return the JSON.";        
+        chat.Model = "llama3.2-vision";
 
         byte controllerState = 0;
         string frameFileName = string.Empty;
+        string lastAction = "undefined"; // Track the last action performed
 
         while (!Raylib.WindowShouldClose())
         {
-
             Raylib.SetWindowSize(256 * Helper.scale, 240 * Helper.scale);
             Raylib.BeginDrawing();
             rlImGui.Begin();
-
             Raylib.ClearBackground(Color.Black);
-
-
             MenuBar();
 
             if (Helper.romPath.Length != 0 && Helper.insertingRom == false)
@@ -114,7 +92,6 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
             else if (Helper.insertingRom == true)
             {
                 nes = new NES();
-                nes.chat = chat;
                 Helper.insertingRom = false;
             }
             else
@@ -124,27 +101,40 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space)) Helper.showMenuBar = !Helper.showMenuBar;
-
             if (Helper.fpsEnable) Raylib.DrawFPS(0, Helper.showMenuBar ? 19 : 0);
-
             rlImGui.End();
             Raylib.EndDrawing();
 
-            // Only start analysis if not already running
-            if (File.Exists(frameFileName) && Helper.insertingRom == false && !isAnalyzingFrame)
+            // Only start analysis if not already running and not on start screen
+            if (File.Exists(frameFileName) && !isAnalyzingFrame)
             {
-                isAnalyzingFrame = true;
-
                 _ = Task.Run(async () =>
                 {
-                    // validate that frameFileName is not an empty string
                     if (File.Exists(frameFileName))
                     {
+                        var llmResponse = string.Empty;
                         try
                         {
                             byte[] imageBytes = File.ReadAllBytes(frameFileName);
                             var imageBytesEnumerable = new List<IEnumerable<byte>> { imageBytes };
-                            var llmResponse = string.Empty;
+
+                            // Update prompt to include last action and instruct not to suggest on start screen
+                            var prompt = $@"Act as a game player, with high expertise playing Ms Pacman.
+Your job is to analyze the current game frame, use the last performed action, and define the next step to be taken to win the game.
+The game is Ms Pacman, so the only possible actions are: up, down, left, right.
+If there is no available action return undefined.
+===
+The last action performed was: '{lastAction}'.
+If the game is on the start screen or waiting for user input to start, do not suggest any action, just return undefined.
+===
+The output should be a JSON with 2 fields: 'nextaction', and 'explanation'.
+===
+These are 3 sample JSON output :
+'{{ ""nextaction"": ""right"", ""explanation"": ""Moving right will allow Ms Pacman to collect more pellets while avoiding nearby ghosts."" }}'
+'{{ ""nextaction"": ""left"", ""explanation"": ""Moving left will help Ms Pacman avoid an approaching ghost."" }}'
+'{{ ""nextaction"": ""up"", ""explanation"": ""Moving up will open up routes to collect more pellets."" }}'
+===
+Do not include ```json at the beginning of the result, ``` at the end, only return the JSON";
 
                             await foreach (var answerToken in chat.SendAsync(message: prompt, imagesAsBytes: imageBytesEnumerable))
                             {
@@ -152,9 +142,16 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
                             }
 
                             llmResponse = CleanLlmJsonResponse(llmResponse);
-                            
-                            // deserialize the llmResponse json string into a GameActionResult
-                            GameActionResult gar = System.Text.Json.JsonSerializer.Deserialize<GameActionResult>(llmResponse);    
+                            GameActionResult gar = System.Text.Json.JsonSerializer.Deserialize<GameActionResult>(llmResponse);
+
+                            // If the suggested action is the same as the last, do not perform the action
+                            if (gar.nextaction == lastAction)
+                            {
+                                Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Action '{gar.nextaction}' is the same as the last action. Skipping.");
+                                // Still update lastAction for next prompt
+                                lastAction = gar.nextaction;
+                                return;
+                            }
 
                             // display the next action in the console, with the current time with milliseconds as prefix
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.nextaction}{Environment.NewLine}\t{gar.explanation}");
@@ -178,10 +175,13 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
                                     controllerState = 0; // No action
                                     break;
                             }
+                            lastAction = gar.nextaction;
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"Error during frame analysis: {ex.Message}");
+                            Console.WriteLine($"Error during frame analysis");
+                            Console.WriteLine($"LLM Response: {llmResponse}");
+                            Console.WriteLine($"Message: {ex.Message}");
                         }
                         finally
                         {
@@ -191,7 +191,6 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
                 });
             }
         }
-
         Raylib.CloseWindow();
     }
 
@@ -206,14 +205,37 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
         int start = Array.FindIndex(lines, l => l.TrimStart().StartsWith("{"));
         int end = Array.FindLastIndex(lines, l => l.TrimEnd().EndsWith("}"));
 
+        string json = null;
         if (start >= 0 && end >= start)
         {
             var jsonLines = lines[start..(end + 1)];
-            return string.Join("\n", jsonLines);
+            json = string.Join("\n", jsonLines).Trim();
+        }
+        else
+        {
+            // If not found, use the original (may throw on deserialization)
+            json = llmResponse.Trim();
         }
 
-        // If not found, return the original (may throw on deserialization)
-        return llmResponse.Trim();
+        // Remove any trailing characters after the last '}'
+        int lastBrace = json.LastIndexOf('}');
+        if (lastBrace >= 0 && lastBrace < json.Length - 1)
+        {
+            json = json.Substring(0, lastBrace + 1);
+        }
+
+        // Remove trailing period or any character after '}'
+        while (json.Length > 0 && json[^1] != '}')
+        {
+            json = json.Substring(0, json.Length - 1).TrimEnd();
+        }
+        // Remove trailing period if it is right after '}'
+        if (json.EndsWith("}."))
+        {
+            json = json.Substring(0, json.Length - 1);
+        }
+
+        return json;
     }
 
     public void MenuBar()
