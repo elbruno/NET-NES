@@ -57,8 +57,13 @@ public class GUI
         // ollama
         var uri = new Uri("http://localhost:11434");
         var ollama = new OllamaApiClient(uri);
-        ollama.SelectedModel = "qwen2.5vl";
-        // ollama.SelectedModel = "llama3.2-vision";        
+        ollama.SelectedModel = "llama3.2-vision";
+
+        // OK - ollama.SelectedModel = "llama3.2-vision";
+        // BAD - ollama.SelectedModel = "qwen2.5vl:3b";
+        // BAD - ollama.SelectedModel = "gemma3";// 
+        // BAD - ollama.SelectedModel = "granite3.2-vision";
+        // BAD - ollama.SelectedModel = "minicpm-v";
         var chat = new Chat(ollama);
 
         var prompt = @"Act as a game player, with high expertise playing Ms Pacman.
@@ -143,21 +148,16 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
 
                             await foreach (var answerToken in chat.SendAsync(message: prompt, imagesAsBytes: imageBytesEnumerable))
                             {
-                                // show the answerToken in the Console
                                 llmResponse += answerToken;
                             }
 
                             llmResponse = CleanLlmJsonResponse(llmResponse);
-                            Console.WriteLine(llmResponse);
-
-                            // desearialize the llmResponse json string into a GameActionResult
-                            GameActionResult gar =
-                            System.Text.Json.JsonSerializer.Deserialize<GameActionResult>(llmResponse);    
-
+                            
+                            // deserialize the llmResponse json string into a GameActionResult
+                            GameActionResult gar = System.Text.Json.JsonSerializer.Deserialize<GameActionResult>(llmResponse);    
 
                             // display the next action in the console, with the current time with milliseconds as prefix
-                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.nextaction}");
-                            Console.WriteLine($"\t{gar.explanation}");
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.nextaction}{Environment.NewLine}\t{gar.explanation}");
 
                             // Send the corresponding key to the keyboard for the detected action
                             switch (gar.nextaction)
