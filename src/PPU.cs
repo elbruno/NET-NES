@@ -483,7 +483,7 @@ public class PPU {
             if (!Directory.Exists(path)) {
                 Directory.CreateDirectory(path);
             }
-            string filename = $"nes_frame_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.png";
+            string filename = $"nes_frame_{DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")}.png";
             return Path.Combine(path, filename);
     }
 

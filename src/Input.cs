@@ -1,7 +1,7 @@
 using Raylib_cs;
 
 public class Input {
-    private byte controllerState = 0;
+    public byte controllerState = 0;
     private byte controllerShift = 0;
 
     public void UpdateController() {

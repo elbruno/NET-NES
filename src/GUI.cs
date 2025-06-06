@@ -6,6 +6,7 @@ using Raylib_cs;
 using rlImGui_cs;
 using System.Threading.Tasks;
 
+
 public class GUI
 {
     private NES nes;
@@ -52,9 +53,17 @@ public class GUI
 
     public async Task RunAsync()
     {
+        // ollama
+        var uri = new Uri("http://localhost:11434");
+        var ollama = new OllamaApiClient(uri);
+        ollama.SelectedModel = "gemma3";
+        var chat = new Chat(ollama);
+
+        byte controllerState = 0;
+        string frameFileName = string.Empty;
+
         while (!Raylib.WindowShouldClose())
         {
-            string frameFileName = string.Empty;
 
             Raylib.SetWindowSize(256 * Helper.scale, 240 * Helper.scale);
             Raylib.BeginDrawing();
@@ -62,17 +71,24 @@ public class GUI
 
             Raylib.ClearBackground(Color.Black);
 
-            // ollama
-            var uri = new Uri("http://localhost:11434");
-            var ollama = new OllamaApiClient(uri);
-            ollama.SelectedModel = "gemma3";
-            var chat = new Chat(ollama);
 
             MenuBar();
 
             if (Helper.romPath.Length != 0 && Helper.insertingRom == false)
             {
-                frameFileName = nes.Run();
+                // original
+                // frameFileName = nes.Run();
+
+                if (controllerState != 0)
+                {
+                    frameFileName = nes.Run(controllerState, true);
+                    controllerState = 0;
+                }
+                else
+                {
+                    frameFileName = nes.Run();
+                }
+
             }
             else if (Helper.insertingRom == true)
             {
@@ -97,23 +113,62 @@ public class GUI
             if (File.Exists(frameFileName) && Helper.insertingRom == false && !isAnalyzingFrame)
             {
                 isAnalyzingFrame = true;
+
                 _ = Task.Run(async () =>
                 {
-                    try
+                    // validate that frameFileName is not an empty string
+                    if (File.Exists(frameFileName))
                     {
-                        byte[] imageBytes = File.ReadAllBytes(frameFileName);
-                        var imageBytesEnumerable = new List<IEnumerable<byte>> { imageBytes };
-                        var analysisPrompt = "analyze the game frame, and define the next step to be taken";
-                        var description = string.Empty;
+                        try
+                        {
+                            byte[] imageBytes = File.ReadAllBytes(frameFileName);
+                            var imageBytesEnumerable = new List<IEnumerable<byte>> { imageBytes };
+                            var analysisPrompt = "Act as a game player, with high expertise playing Ms Pacman." +
+                            "Analyze the game frame, and define the next step to be taken to win the game. " +
+                            "The game is Ms Pacman, so it only must return up, down, left, right or undefined. " +
+                            "The output should be only the word with the next action to be performed." +
+                            "If there is no available action return undefined.";
+                            var nextAction = string.Empty;
 
-                        await foreach (var answerToken in chat.SendAsync(message: analysisPrompt, imagesAsBytes: imageBytesEnumerable))
-                            description += answerToken;
+                            await foreach (var answerToken in chat.SendAsync(message: analysisPrompt, imagesAsBytes: imageBytesEnumerable))
+                            {
+                                // show the answerToken in the Console
+                                Console.WriteLine($"Answer Token: {answerToken}");
+                                nextAction += answerToken;
+                            }
 
-                        Console.WriteLine(description);
-                    }
-                    finally
-                    {
-                        isAnalyzingFrame = false;
+                            nextAction = nextAction.Trim().ToLower();
+                            // display the next action in the console, with the current time with milliseconds as prefix
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {nextAction}");
+
+                            // Send the corresponding key to the keyboard for the detected action
+                            switch (nextAction)
+                            {
+                                case "up":
+                                    controllerState |= 1 << 4;
+                                    break;
+                                case "down":
+                                    controllerState |= 1 << 5; // Down
+                                    break;
+                                case "left":
+                                    controllerState |= 1 << 6; // Left
+                                    break;
+                                case "right":
+                                    controllerState |= 1 << 7; // Right
+                                    break;
+                                case "undefined":
+                                    controllerState = 0; // No action
+                                    break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error during frame analysis: {ex.Message}");
+                        }
+                        finally
+                        {
+                            isAnalyzingFrame = false;
+                        }
                     }
                 });
             }
