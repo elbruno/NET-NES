@@ -1,7 +1,6 @@
 ﻿using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
-using OllamaSharp;
 using System.ClientModel;
 namespace NET_NES.nextactionai;
 

@@ -34,6 +34,9 @@ public class NES
         }
 
         var frameImageFileName = bus.ppu.DrawFrameAndSave(Helper.scale, true);
+
+        // Task.Delay(250); // delay 500 milliseconds
+
         return frameImageFileName;
     }
 }
