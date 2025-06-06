@@ -57,7 +57,8 @@ public class GUI
         // ollama
         var uri = new Uri("http://localhost:11434");
         var ollama = new OllamaApiClient(uri);
-        ollama.SelectedModel = "llama3.2-vision";
+        ollama.SelectedModel = "qwen2.5vl";
+        // ollama.SelectedModel = "llama3.2-vision";        
         var chat = new Chat(ollama);
 
         var prompt = @"Act as a game player, with high expertise playing Ms Pacman.
@@ -156,13 +157,13 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
 
                             // display the next action in the console, with the current time with milliseconds as prefix
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.nextaction}");
-                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.explanation}");
+                            Console.WriteLine($"\t{gar.explanation}");
 
                             // Send the corresponding key to the keyboard for the detected action
                             switch (gar.nextaction)
                             {
                                 case "up":
-                                    controllerState |= 1 << 4;
+                                    controllerState |= 1 << 4; // Up
                                     break;
                                 case "down":
                                     controllerState |= 1 << 5; // Down
