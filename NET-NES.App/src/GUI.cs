@@ -8,6 +8,7 @@ using Raylib_cs;
 using rlImGui_cs;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 public class GUI
 {
@@ -54,8 +55,12 @@ public class GUI
 
         Raylib.SetWindowIcon(icon);
 
-        //actionProvider = new OllamaGameActionProvider();
-        actionProvider = new AoaiGameActionProvider();
+        // Read secrets for AoaiGameActionProvider
+        var config = new ConfigurationBuilder().AddUserSecrets(typeof(AoaiGameActionProvider).Assembly).Build();
+        var endpoint = config["AZURE_OPENAI_ENDPOINT"];
+        var modelId = config["AZURE_OPENAI_MODEL"];
+        var apiKey = config["AZURE_OPENAI_APIKEY"];
+        actionProvider = new AoaiGameActionProvider(endpoint, modelId, apiKey);
     }
 
     public static void ToggleAIMode()
