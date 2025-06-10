@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.AI;
 
-namespace NET_NES.nextactionai;
+namespace NET_NES.GameActionProcessor;
 
 public class GameActionProviderBase
 {

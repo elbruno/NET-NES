@@ -1,7 +1,7 @@
 #pragma warning disable
 
 using ImGuiNET;
-using NET_NES.nextactionai;
+using NET_NES.GameActionProcessor;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using Raylib_cs;
