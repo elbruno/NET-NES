@@ -10,3 +10,4 @@ test/v1/
 *.bin
 *.nes
 /.vs
+/rooms

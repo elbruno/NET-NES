@@ -1,12 +1,13 @@
 #pragma warning disable
 
 using ImGuiNET;
+using NET_NES.GameActionProcessor;
 using OllamaSharp;
 using OllamaSharp.Models.Chat;
 using Raylib_cs;
 using rlImGui_cs;
+using System.Collections.Generic;
 using System.Threading.Tasks;
-
 
 public class GUI
 {
@@ -19,10 +20,12 @@ public class GUI
     private bool showAboutWindow = false;
     private bool showManualWindow = false;
 
-    private volatile bool isAnalyzingFrame = false; // Add this field
+    private volatile bool isAnalyzingFrame = false;
 
     Image icon;
     Texture2D backgroundTexture;
+
+    private IGameActionProvider actionProvider;
 
     public GUI()
     {
@@ -50,56 +53,32 @@ public class GUI
         backgroundTexture = Raylib.LoadTexture(Path.Combine(AppContext.BaseDirectory, "res", "Background.png"));
 
         Raylib.SetWindowIcon(icon);
+
+        //actionProvider = new OllamaGameActionProvider();
+        actionProvider = new AoaiGameActionProvider();
+    }
+
+    public static void ToggleAIMode()
+    {
+        Helper.aiMode = !Helper.aiMode;
     }
 
     public async Task RunAsync()
     {
-        // ollama
-        var uri = new Uri("http://localhost:11434");
-        var ollama = new OllamaApiClient(uri);
-        ollama.SelectedModel = "llama3.2-vision";
-
-        // OK - ollama.SelectedModel = "llama3.2-vision";
-        // BAD - ollama.SelectedModel = "qwen2.5vl:3b";
-        // BAD - ollama.SelectedModel = "gemma3";// 
-        // BAD - ollama.SelectedModel = "granite3.2-vision";
-        // BAD - ollama.SelectedModel = "minicpm-v";
-        var chat = new Chat(ollama);
-
-        var prompt = @"Act as a game player, with high expertise playing Ms Pacman.
-Your job is to analyze game frames, and define the next step to be taken to win the game.
-The game is Ms Pacman, so the only possible actions are: up, down, left, right or undefined.
-If there is no available action return undefined.
-
-The output should be a JSON with 2 fields: 'nextaction' and 'explanation'.
-
-These are 3 sample JSON output :
-'{ ""nextaction"": ""right"",\r\n  ""explanation"": ""Moving right will allow Ms Pacman to collect more pellets while avoiding nearby ghosts.""'
-'{ ""nextaction"": ""left"",\r\n  ""explanation"": ""Moving left will help Ms Pacman avoid an approaching ghost.""'
-'{ ""nextaction"": ""up"",\r\n  ""explanation"": ""Moving up will open up routes to collect more pellets.""'
-
-Do not include ```json at the beginning of the result, ``` at the end, only return the JSON.";        
-
         byte controllerState = 0;
         string frameFileName = string.Empty;
+        string lastAction = "undefined"; // Track the last action performed
 
         while (!Raylib.WindowShouldClose())
         {
-
             Raylib.SetWindowSize(256 * Helper.scale, 240 * Helper.scale);
             Raylib.BeginDrawing();
             rlImGui.Begin();
-
             Raylib.ClearBackground(Color.Black);
-
-
             MenuBar();
 
             if (Helper.romPath.Length != 0 && Helper.insertingRom == false)
             {
-                // original
-                // frameFileName = nes.Run();
-
                 if (controllerState != 0)
                 {
                     frameFileName = nes.Run(controllerState, true);
@@ -109,12 +88,10 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
                 {
                     frameFileName = nes.Run();
                 }
-
             }
             else if (Helper.insertingRom == true)
             {
                 nes = new NES();
-                nes.chat = chat;
                 Helper.insertingRom = false;
             }
             else
@@ -124,37 +101,33 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space)) Helper.showMenuBar = !Helper.showMenuBar;
-
             if (Helper.fpsEnable) Raylib.DrawFPS(0, Helper.showMenuBar ? 19 : 0);
-
             rlImGui.End();
             Raylib.EndDrawing();
 
-            // Only start analysis if not already running
-            if (File.Exists(frameFileName) && Helper.insertingRom == false && !isAnalyzingFrame)
+            // Only run AI if enabled
+            if (Helper.aiMode && File.Exists(frameFileName) && !isAnalyzingFrame)
             {
                 isAnalyzingFrame = true;
-
                 _ = Task.Run(async () =>
                 {
-                    // validate that frameFileName is not an empty string
                     if (File.Exists(frameFileName))
                     {
+                        GameActionResult? gar = null;
                         try
                         {
                             byte[] imageBytes = File.ReadAllBytes(frameFileName);
-                            var imageBytesEnumerable = new List<IEnumerable<byte>> { imageBytes };
-                            var llmResponse = string.Empty;
+                            gar = await actionProvider.AnalyzeFrameAsync(imageBytes, lastAction);
+                            if (gar == null)
+                                return;
 
-                            await foreach (var answerToken in chat.SendAsync(message: prompt, imagesAsBytes: imageBytesEnumerable))
+                            // If the suggested action is the same as the last, do not perform the action
+                            if (gar.nextaction == lastAction)
                             {
-                                llmResponse += answerToken;
+                                Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Action '{gar.nextaction}' is the same as the last action. Skipping.");
+                                lastAction = gar.nextaction;
+                                return;
                             }
-
-                            llmResponse = CleanLlmJsonResponse(llmResponse);
-                            
-                            // deserialize the llmResponse json string into a GameActionResult
-                            GameActionResult gar = System.Text.Json.JsonSerializer.Deserialize<GameActionResult>(llmResponse);    
 
                             // display the next action in the console, with the current time with milliseconds as prefix
                             Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] Next Action: {gar.nextaction}{Environment.NewLine}\t{gar.explanation}");
@@ -178,10 +151,14 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
                                     controllerState = 0; // No action
                                     break;
                             }
+                            lastAction = gar.nextaction;
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"Error during frame analysis: {ex.Message}");
+                            Console.WriteLine($"Error during frame analysis");
+                            if (gar == null)
+                                Console.WriteLine($"GameActionResult is null");
+                            Console.WriteLine($"Message: {ex.Message}");
                         }
                         finally
                         {
@@ -190,30 +167,9 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
                     }
                 });
             }
+            // else: user control mode, do not run AI
         }
-
         Raylib.CloseWindow();
-    }
-
-    private static string CleanLlmJsonResponse(string llmResponse)
-    {
-        if (string.IsNullOrWhiteSpace(llmResponse))
-            return llmResponse;
-
-        var lines = llmResponse.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-        // Find the first line that starts with '{' and the last line that ends with '}'
-        int start = Array.FindIndex(lines, l => l.TrimStart().StartsWith("{"));
-        int end = Array.FindLastIndex(lines, l => l.TrimEnd().EndsWith("}"));
-
-        if (start >= 0 && end >= start)
-        {
-            var jsonLines = lines[start..(end + 1)];
-            return string.Join("\n", jsonLines);
-        }
-
-        // If not found, return the original (may throw on deserialization)
-        return llmResponse.Trim();
     }
 
     public void MenuBar()
@@ -240,6 +196,11 @@ Do not include ```json at the beginning of the result, ``` at the end, only retu
                     if (ImGui.MenuItem("Window Size"))
                     {
                         showScaleWindow = true;
+                    }
+                    // Add AI mode toggle
+                    if (ImGui.MenuItem($"AI Mode: {(Helper.aiMode ? "ON" : "OFF")}"))
+                    {
+                        Helper.aiMode = !Helper.aiMode;
                     }
                     ImGui.EndMenu();
                 }
