@@ -11,6 +11,8 @@ public class Helper {
     public static bool insertingRom = false;
     public static bool showMenuBar = true; 
     public static Version version = new Version(1, 0, 0);
+    
+    public static bool aiMode = false; // true = AI, false = user control
 
     public static void Flags(string[] args) {
         flagArraySize = args.Length;

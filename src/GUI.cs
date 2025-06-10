@@ -58,6 +58,11 @@ public class GUI
         actionProvider = new AoaiGameActionProvider();
     }
 
+    public static void ToggleAIMode()
+    {
+        Helper.aiMode = !Helper.aiMode;
+    }
+
     public async Task RunAsync()
     {
         byte controllerState = 0;
@@ -83,7 +88,6 @@ public class GUI
                 {
                     frameFileName = nes.Run();
                 }
-
             }
             else if (Helper.insertingRom == true)
             {
@@ -101,8 +105,8 @@ public class GUI
             rlImGui.End();
             Raylib.EndDrawing();
 
-            // Only start analysis if not already running and not on start screen
-            if (File.Exists(frameFileName) && !isAnalyzingFrame)
+            // Only run AI if enabled
+            if (Helper.aiMode && File.Exists(frameFileName) && !isAnalyzingFrame)
             {
                 isAnalyzingFrame = true;
                 _ = Task.Run(async () =>
@@ -163,6 +167,7 @@ public class GUI
                     }
                 });
             }
+            // else: user control mode, do not run AI
         }
         Raylib.CloseWindow();
     }
@@ -191,6 +196,11 @@ public class GUI
                     if (ImGui.MenuItem("Window Size"))
                     {
                         showScaleWindow = true;
+                    }
+                    // Add AI mode toggle
+                    if (ImGui.MenuItem($"AI Mode: {(Helper.aiMode ? "ON" : "OFF")}"))
+                    {
+                        Helper.aiMode = !Helper.aiMode;
                     }
                     ImGui.EndMenu();
                 }
